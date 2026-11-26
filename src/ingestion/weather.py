@@ -21,18 +21,24 @@ def fetch_chunk(lat: float, lon: float, start: str, end: str) -> pd.DataFrame:
         "timezone": "Asia/Kolkata",
         "wind_speed_unit": "ms",
     }
-    for attempt in range(4):
-        resp = requests.get(URL, params=params, timeout=60)
+    for attempt in range(5):
+        try:
+            resp = requests.get(URL, params=params, timeout=60)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
+            wait = 10 * (attempt + 1)
+            print(f"    network error ({type(exc).__name__}), retrying in {wait}s...")
+            time.sleep(wait)
+            continue
         if resp.status_code == 200:
             return pd.DataFrame(resp.json()["hourly"]).rename(columns={"time": "datetime"})
         if resp.status_code == 429:  # rate limited: wait, then retry
+            print("    rate limited, waiting...")
             time.sleep(30 * (attempt + 1))
             continue
         if resp.status_code == 400:
             raise ValueError(resp.json().get("reason", resp.text))
         resp.raise_for_status()
-    raise RuntimeError(f"Rate limit did not clear for {start}..{end}")
-
+    raise RuntimeError(f"Could not fetch {start}..{end} after several attempts")
 
 def fetch_city(city: str, cfg: dict) -> pd.DataFrame:
     start, end = pd.Timestamp(cfg["start"]), pd.Timestamp(END_DATE)
